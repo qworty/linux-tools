@@ -1,0 +1,47 @@
+#!/usr/bin/perl
+use strict;
+use warnings FATAL => 'all';
+
+die "Need \$HOME variable to be set.\n" unless (defined($ENV{'HOME'}) && -d $ENV{'HOME'});
+my $desktop = "$ENV{'HOME'}/desktop";
+die "You have no $desktop\n" unless -d $desktop;
+
+my @dirs_to_rm;
+my @files_to_rm;
+
+open(FIND, "find \"$desktop\"|") or die $!;
+while(<FIND>){
+	(my $path = $_) =~ s/\s*$//;
+	next if $path eq $desktop;
+	my ($dev,$ino,$mode,$nlink,$uid,$gid,$rdev,$size,$atime,$mtime,$ctime,$blksize,$blocks) = lstat($path);
+	die "Can't stat $path: $!\n" unless $ctime;
+	next if -l _;
+	next unless (-d _ || -f _);
+	if(
+		(time - $ctime) > (28*24*60*60)
+			&&
+		(time - $mtime) > (28*24*60*60)
+	){
+		print "$path is older than 30 days\n";
+		if( -d _ ){
+			push(@dirs_to_rm, $path);
+		}
+		elsif( -f _ ){
+			push(@files_to_rm, $path);
+		}
+	}
+}
+
+@dirs_to_rm = reverse sort @dirs_to_rm;
+
+print " Dirs to delete:\n", map { "  $_\n" } @dirs_to_rm;
+print " Files to delete:\n", map { "  $_\n" } @files_to_rm;
+
+die "Usage: $0 yes\n" unless ( @ARGV && $ARGV[0] eq 'yes' );
+
+unless(-d "/tmp/clear-desktop-$ENV{'USER'}"){ mkdir("/tmp/clear-desktop-$ENV{'USER'}") or die $!; }
+
+foreach(@files_to_rm){
+	system('/bin/mv', $_, "/tmp/clear-desktop-$ENV{'USER'}/");
+}
+rmdir foreach (@dirs_to_rm);

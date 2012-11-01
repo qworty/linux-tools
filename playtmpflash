@@ -1,0 +1,67 @@
+#!/usr/bin/perl
+use strict;
+use warnings FATAL => 'all';
+
+foreach my $pid (`pgrep -f flashplayer`){
+	chomp($pid);
+	foreach my $line (`lsof -p $pid`){
+		chomp($line);
+		next unless $line =~ /\/tmp\/Flash\S*/;
+		my @fld = split(/\s+/, $line);
+		(my $src = "/proc/$fld[1]/fd/$fld[3]") =~ s/[rwu]$//;
+		my $tgt = $fld[8];
+		print "'$src' => '$tgt'\n";
+		open(SRC, "<$src") or die $!;
+		binmode SRC;
+		unlink($tgt);
+		open(TGT, ">$tgt") or die $!;
+		binmode TGT;
+		my $buf;
+		my $lastsize = 0;
+		my $totalread = 0;
+		my $mplayer_started = 0;
+		my $mplayer_pid = 0;
+		READ:while(1){
+			my $size = (stat(SRC))[7];
+			if( $size > $lastsize ){
+				print " $size > $lastsize , pulling in some data..\n";
+				while(sysread(SRC, $buf, 1024 * 1024) != 0){
+					my $readbytes = length($buf);
+					print " read $readbytes bytes\n";
+					die unless($readbytes);
+					$totalread += $readbytes;
+					print " read total of $totalread bytes\n";
+					if( ! $mplayer_started ){
+						$mplayer_started = 1;
+						my $fork = fork;
+						die unless defined $fork;
+						if( $fork != 0 ){
+							$mplayer_pid = $fork;
+							print "Starting mplayer..\n";
+							system('mplayer', $tgt);
+							print "mplayer exits $?\n";
+							exit;
+							#while(1){
+							#	print "hi i'm mplayer!\n";
+							#	sleep 1;
+							#}
+						}
+					}
+					print TGT $buf;
+				}
+				$lastsize = $size;
+				sleep 5;
+			}
+			else {
+				last READ;
+			}
+		}
+		close(SRC) or die $!;
+		close(TGT) or die $!;
+		#system('cp', $src, $tgt); die $! if $?;
+		#system('mplayer', $tgt);
+		print "Done. Now wait for mplayer to exit..\n";
+		wait;
+		#unlink($tgt);
+	}
+}

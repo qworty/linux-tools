@@ -1,0 +1,84 @@
+#!/usr/bin/perl
+use strict;
+use warnings FATAL => 'all';
+
+my $startpath = shift(@ARGV) // '/';
+
+chdir($startpath) or die $!;
+
+my $printbuf = '';
+
+sub printbuf {
+	my( $text ) = @_;
+	local $| = 1;
+	print "\b" x length($printbuf);
+	print $text;
+	$printbuf = $text;
+}
+
+my @files;
+
+print "\n";
+
+my $stamp = time;
+
+my @prunepaths = (
+	'./mnt',
+	'./tmp',
+	'./proc',
+	'./dev',
+	'./home',
+	'./root',
+	'./lib',
+	'./usr/lib',
+	'./usr/share/locale',
+	'./opt/backups',
+	'./opt/www',
+	'./opt/git',
+	'./opt/svn',
+	'./var/lib/pacman/sync'
+);
+
+open(FIND, "find . ".join(' -or ', map { "-path $_ -and -prune" } @prunepaths )." -or -print|") or die $!;
+
+while(<FIND>){
+	my $file = $_;
+	$file =~ s/\s*$//;
+	if( time - $stamp >= 1 ){
+		printbuf($file);
+		$stamp = time;
+		#sleep 1;
+	}
+	next unless( $file =~ /\.(pac|rpm)(save|new)$/ );
+	(my $curfile = $file) =~ s/\.(pac|rpm)(save|new)$//;
+	print "\n";
+	print " --- $curfile\n";
+	print " --- $file\n";
+	if(-e $curfile){
+		push(@files, [$file, $curfile]);
+	}
+	else {
+		print " !!! 'Current' file '$curfile' not found.\n";
+	}
+	print "\n";
+}
+
+close(FIND) or die $!;
+
+print "\n";
+
+foreach (@files){
+	my( $file, $curfile ) = @{$_};
+	system("meld \"$curfile\" \"$file\"");
+	if( $? ){ die "meld: $?"; }
+	print " ??? Delete '$file'?\n";
+	print " >>> ";
+	my $exinp = <STDIN>;
+	if( $exinp && $exinp =~ /^\s*y(es)?\s*$/ ){
+		print " ... Deleting '$file'.\n";
+		unlink($file) or die $!;
+	}
+	else {
+		print " ... Ok, not deleting.\n";
+	}
+}

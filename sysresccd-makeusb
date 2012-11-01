@@ -1,0 +1,74 @@
+#!/usr/bin/perl
+use strict;
+use warnings FATAL => 'all';
+
+my @keepitems = ('autorun', 'myresc', 'data');
+
+################################
+
+sub gettmpdir {
+	my $tmpdir;
+	do {
+		$tmpdir = '/tmp/sysresccd.tmp.' . int(rand(10000000));
+	} while( -e $tmpdir );
+	mkdir($tmpdir) or die $!;
+	return $tmpdir;
+}
+
+sub waitforstickmount {
+	if( ! -f '/run/media/bas/SYSRESC/sysrcd.dat' ){
+		print " - please mount the stick on /run/media/bas/SYSRESC ..\n";
+		while( ! -f '/run/media/bas/SYSRESC/sysrcd.dat' ){
+			sleep 1;
+		}
+	}
+}
+
+sub umountstick {
+	do {
+		system("sync");
+		system('umount', '/run/media/bas/SYSRESC');
+		system("sync");
+		sleep 1;
+	}
+	while ($?);
+}
+
+################################
+
+my( $iso ) = @ARGV;
+die "param 1: sysresccd iso file\n" unless( $iso && -e $iso );
+
+if( $> ){
+	print " - sudo!\n";
+	system('sudo', $0, @ARGV); die $? if $?;
+	exit;
+}
+
+#die "mount sysresccd on /run/media/bas/SYSRESC\n" unless( -f '/run/media/bas/SYSRESC/sysrcd.dat' );
+waitforstickmount();
+foreach my $keepitem (@keepitems){
+	die "no '$keepitem' found on /run/media/bas/SYSRESC\n" unless( -e "/run/media/bas/SYSRESC/$keepitem" );
+}
+
+my $tmpdir = gettmpdir();
+
+print " - copy keepitems to temp location ($tmpdir)..\n";
+system('cp', '-vrt', $tmpdir, map { "/run/media/bas/SYSRESC/$_" } @keepitems); die $? if $?;
+print " - press <RETURN> if you are happy so far..\n";
+my $waitinp = <STDIN>;
+umountstick();
+
+my $tmpmnt = gettmpdir();
+system('mount', '-o', 'loop,exec', $iso, $tmpmnt); die $? if $?;
+chdir($tmpmnt) or die $!;
+system('bash', './usb_inst.sh'); die $? if $?;
+chdir('/tmp') or die $!;
+system('umount', $tmpmnt); die $? if $?;
+
+print " - copy keepitems back to new usb stick..\n";
+waitforstickmount();
+system('cp', '-vrit', '/run/media/bas/SYSRESC', map { "$tmpdir/$_" } @keepitems); die $? if $?;
+print " - done!\n";
+umountstick();
+
