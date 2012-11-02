@@ -1,0 +1,120 @@
+#!/usr/bin/perl
+use strict;
+use warnings FATAL=>'all';
+    use LWP::Simple;
+
+my @programmas = ("962-pauw-witteman","2617-de-rekenkamer","8895-moeder-ik-wil-bij-de-revue","8323-keuringsdienst-van-waarde","8939-the-bridge","467-toren-c","8921-boardwalk-empire","199-labyrint","1185-neonletters","1102-koefnoen");
+my $uitzendingurl = 'http://www.uitzendinggemist.nl/programmas/';
+for my $programma(@programmas){
+    my $content = get($uitzendingurl."$programma") or die 'Unable to get page';
+    #print $content;
+    $content =~ m|/afleveringen/(.*?)".*?alt="(.*?)"|s;
+    my ($streamnaam, $streamdate);
+    print "$programma";
+    print "$1\n";
+   
+    if($1){
+        $streamnaam = $1;
+    }
+    if($2){
+        $streamdate = $2;
+        $streamdate =~ s/\s//ig;
+        $streamdate =~ s/,//ig;
+        $streamdate =~ s/://ig;
+        $streamdate =~ s/\(//ig;
+        $streamdate =~ s/\)//ig;
+    }
+    if(-e "/home/films/".$programma.$streamdate.$streamnaam.".flv"){
+        print "Episode already downloaded.\nSkipping...\n";
+        next;
+    }
+    system("amixer set Master mute"); #mute om schrikken te voorkomen
+    system("rm ~/.opera/sessions/autosave.win");
+    system("opera http://www.uitzendinggemist.nl/afleveringen/$1 &");
+    sleep(10);# wait time for opera to start
+     #print "Continuing...\n";
+    foreach my $pid (`pgrep -f pluginwrapper`){ #opera grep
+        chomp($pid);
+        print "Going to grab...\n";
+        foreach my $line (`lsof -p $pid`){
+                chomp($line);
+                next unless $line =~ /\/tmp\/Flash\S*/;
+                my @fld = split(/\s+/, $line);
+                (my $src = "/proc/$fld[1]/fd/$fld[3]") =~ s/[rwu]$//;
+                my $tgt = $fld[8];
+                print "'$src' => '$tgt'\n";
+                open(SRC, "<$src") or die $!;
+                binmode SRC;
+                unlink($tgt);
+                open(TGT, ">$tgt") or die $!;
+                binmode TGT;
+                my $buf;
+                my $lastsize = 0;
+                my $totalread = 0;
+                my $mplayer_started = 0;
+                my $mplayer_pid = 0;
+                READ:while(1){
+                        my $size = (stat(SRC))[7];
+                        if( $size > $lastsize ){
+                                print " $size > $lastsize , pulling in some data..\n";
+                                while(sysread(SRC, $buf, 1024 * 1024) != 0){
+                                        my $readbytes = length($buf);
+                                      #  print " read $readbytes bytes\n";
+                                        die unless($readbytes);
+                                        $totalread += $readbytes;
+                                        print " read total of $totalread bytes\n";
+                                        if( ! $mplayer_started ){
+                                                $mplayer_started = 1;
+                                                my $fork = fork;
+                                                die unless defined $fork;
+                                                if( $fork != 0 ){
+                                                        $mplayer_pid = $fork;
+                                                        #print "Starting mplayer..\n";
+                                                        #system('vlc-play', $tgt);
+                                                        #print "mplayer exits $?\n";
+                                                        exit;
+                                                        #while(1){
+                                                        #       print "hi i'm mplayer!\n";
+                                                        #       sleep 1;
+                                                        #}
+                                                }
+                                        }
+                                        print TGT $buf;
+                                }
+                                $lastsize = $size;
+                                sleep 5;
+                        }
+                        else {
+                                last READ;
+                        }
+                }
+                close(SRC) or die $!;
+                close(TGT) or die $!;
+                #system('cp', $src, $tgt); die $! if $?;
+                #system('mplayer', $tgt);
+                #print "Done. Now wait for mplayer to exit..\n";
+                
+                my $date = getDate();
+             
+                my $filenaam = $programma.$streamdate.$streamnaam.".flv";
+                $filenaam =~ s/\s//gi;
+                print "mv $tgt /home/films/$filenaam";
+                `mv $tgt /home/films/$filenaam`;
+                #unlink($tgt);
+        }
+}
+
+    system("kill `pidof opera`");
+    system("rm ~/.opera/sessions/autosave.win");
+    sleep(3);
+    system("amixer set Master toggle");
+   
+#/afleveringen/(.*?)
+
+}
+sub getDate{
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime;
+    $year += 1900;
+    $mon += 1;
+    return sprintf "%02d-%02d-%04d_%02d%02d%02d", $mday, $mon, $year, $hour, $min, $sec;
+}
